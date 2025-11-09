@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>WHSScienceMC Admin</title>
+    <style>
+        body {
+            background: #202020;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 3rem;
+        }
+
+        button {
+            margin: 1rem;
+            padding: 0.8rem 1.5rem;
+            font-size: 1rem;
+        }
+
+        #admin-section {
+            display: none;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WHSScienceMC Admin Portal</h1>
+
+    <!-- Shared login buttons from main.js -->
+    <div id="auth-controls">
+        <button id="loginBtn">Sign In with Google</button>
+        <button id="logoutBtn" style="display:none;">Sign Out</button>
+        <div id="status"></div>
+    </div>
+
+    <!-- Admin-only section -->
+    <div id="admin-section">
+        <h2>Admin Dashboard</h2>
+        <p>✅ Logged in as <span id="user-name"></span></p>
+        <p>(future export / admin tools go here)</p>
+    </div>
+
+    <!-- Reuse your existing logic -->
+    <script type="module" src="./js/main.js"></script>
+    <script>
+        // extra logic to show/hide admin section once user is authenticated
+        const adminSection = document.getElementById("admin-section");
+        const status = document.getElementById("status");
+        const userNameSpan = document.getElementById("user-name");
+
+        // Wait for Firebase Auth (exposed in main.js scope)
+        // We’ll listen for changes once the module loads
+        document.addEventListener("firebaseAuthReady", () => {
+            window.onAuthStateChanged?.(window.auth, (user) => {
+                if (user && user.email.endsWith("@education.nsw.gov.au")) {
+                    adminSection.style.display = "block";
+                    userNameSpan.textContent = user.displayName || user.email;
+                    status.textContent = "";
+                } else {
+                    adminSection.style.display = "none";
+                    status.textContent = "Please sign in with your DoE account.";
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
