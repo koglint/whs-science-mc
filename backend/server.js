@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import admin from "firebase-admin";
-import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
 
 
@@ -19,8 +18,17 @@ app.get("/api/test", async (req, res) => {
   res.json({ status: "ok", collections: collections.map(c => c.id) });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on", PORT));
+// ✅ NEW: Serve Firebase public config to frontend
+app.get("/api/config", (req, res) => {
+  res.json({
+    apiKey: process.env.PUBLIC_FIREBASE_APIKEY,
+    authDomain: process.env.PUBLIC_FIREBASE_AUTHDOMAIN,
+    projectId: process.env.PUBLIC_FIREBASE_PROJECTID,
+    storageBucket: process.env.PUBLIC_FIREBASE_STORAGEBUCKET,
+    messagingSenderId: process.env.PUBLIC_FIREBASE_MSGSENDER,
+    appId: process.env.PUBLIC_FIREBASE_APPID
+  });
+});
 
 
 
@@ -72,4 +80,8 @@ app.get("/api/export", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Server running on", PORT));
 
