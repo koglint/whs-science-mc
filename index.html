@@ -1,42 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>WHSScienceMC Connection Test</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        background: #202020;
-        color: white;
-        text-align: center;
-        padding: 50px;
-      }
-      #result {
-        margin-top: 30px;
-        font-size: 1.2em;
-        color: #6cf;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="login-screen">
-      <h1>WHSScienceMC</h1>
-      <p>Please sign in with your @education.nsw.gov.au Google account.</p>
-      <button id="loginBtn">Sign In with Google</button>
-      <div id="login-status"></div>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>WHSScienceMC Connection Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #202020;
+      color: white;
+      text-align: center;
+      padding: 50px;
+    }
+
+    #result {
+      margin-top: 30px;
+      font-size: 1.2em;
+      color: #6cf;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="login-screen">
+    <h1>WHSScienceMC</h1>
+    <p>Please sign in with your @education.nsw.gov.au Google account.</p>
+    <button id="loginBtn">Sign In with Google</button>
+    <div id="login-status"></div>
+  </div>
+
+  <div id="app-screen" style="display:none;">
+    <h2>Welcome, <span id="user-name"></span></h2>
+    <button id="logoutBtn">Sign Out</button>
+
+    <div id="quiz-area">
+      <p>This is the main app content (hidden until login).</p>
+      <button id="writeBtn">Test Firestore Write</button>
     </div>
-  
-    <div id="app-screen" style="display:none;">
-      <h2>Welcome, <span id="user-name"></span></h2>
-      <button id="logoutBtn">Sign Out</button>
-  
-      <div id="quiz-area">
-        <p>This is the main app content (hidden until login).</p>
-        <button id="writeBtn">Test Firestore Write</button>
-      </div>
-    </div>
-  
-    <script type="module" src="./js/main.js"></script>
-  </body>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
 
 </html>
