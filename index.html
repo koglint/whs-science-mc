@@ -18,6 +18,20 @@
       font-size: 1.2em;
       color: #6cf;
     }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      background-color: #4a90e2;
+      color: white;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    button:hover {
+      opacity: 0.85;
+    }
   </style>
 </head>
 
@@ -36,6 +50,8 @@
     <div id="quiz-area">
       <p>This is the main app content (hidden until login).</p>
       <button id="writeBtn">Test Firestore Write</button>
+      <!-- NEW: start quiz button -->
+      <button id="startQuizBtn">Start Quiz</button>
     </div>
   </div>
 

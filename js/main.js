@@ -19,6 +19,7 @@ const userNameSpan = document.getElementById("user-name");
 const statusDiv =
   document.getElementById("login-status") || document.getElementById("status");
 const writeBtn = document.getElementById("writeBtn");
+const startQuizBtn = document.getElementById("startQuizBtn");
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ hd: "education.nsw.gov.au" });
@@ -65,7 +66,7 @@ onAuthStateChanged(auth, (user) => {
   if (userNameSpan && emailOk)
     userNameSpan.textContent = user.displayName || user.email;
 
-  // update status on admin page
+  // update status on admin page or index
   if (statusDiv) {
     if (emailOk) statusDiv.textContent = "";
     else statusDiv.textContent = "Please sign in with your DoE account.";
@@ -84,5 +85,13 @@ if (writeBtn) {
       timestamp: new Date(),
     });
     alert("Wrote Firestore doc for " + user.email);
+  });
+}
+
+// --- Start Quiz button ---
+if (startQuizBtn) {
+  startQuizBtn.addEventListener("click", () => {
+    // go to first question
+    window.location.href = "questions/q1.html";
   });
 }
