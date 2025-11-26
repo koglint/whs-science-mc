@@ -20,7 +20,7 @@
         }
 
         #admin-section {
-            display: none;
+            display: block;
             margin-top: 2rem;
         }
     </style>
@@ -59,19 +59,30 @@
         const exportBtn = document.getElementById("export-btn");
         const exportStatus = document.getElementById("export-status");
 
-        // Show/hide admin section based on auth state
-        document.addEventListener("firebaseAuthReady", () => {
-            window.onAuthStateChanged?.(window.auth, (user) => {
-                if (user && user.email.endsWith("@education.nsw.gov.au")) {
-                    adminSection.style.display = "block";
-                    userNameSpan.textContent = user.displayName || user.email;
-                    status.textContent = "";
-                } else {
-                    adminSection.style.display = "none";
-                    status.textContent = "Please sign in with your DoE account.";
+            // Show/hide admin section based on auth state.
+            // We poll until main.js has put auth + onAuthStateChanged on window.
+            function setupAdminAuthListener() {
+                if (!window.auth || !window.onAuthStateChanged) {
+                    // Try again shortly – main.js may not have finished initialising yet.
+                    setTimeout(setupAdminAuthListener, 200);
+                    return;
                 }
-            });
-        });
+
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user && user.email && user.email.endsWith("@education.nsw.gov.au")) {
+                        adminSection.style.display = "block";
+                        userNameSpan.textContent = user.displayName || user.email;
+                        status.textContent = "";
+                    } else {
+                        adminSection.style.display = "none";
+                        status.textContent = "Please sign in with your DoE account.";
+                    }
+                });
+            }
+
+            // Start polling for auth being ready
+            setupAdminAuthListener();
+
 
         async function downloadExcel() {
             try {
