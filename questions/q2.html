@@ -3,13 +3,13 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Question 1</title>
+    <title>Question 2</title>
     <!-- Shared styles for all question pages -->
     <link rel="stylesheet" href="../css/questions-base.css">
 </head>
 
 <body>
-    <!-- Add a layout class for future flexibility -->
+    <!-- Match q1: no extra layout class -->
     <div class="question-page">
 
         <!-- 1. Info div (user info) -->
@@ -17,35 +17,30 @@
             <span class="label">Logged in as:</span> Placeholder Student Name
         </div>
 
-        <!-- 3. Reword div -->
+        <!-- 3. Reword div (same position as q1) -->
         <div class="reword-block">
             <button id="rewordBtn" type="button">Reword the question</button>
         </div>
 
         <!-- 2. Heading div -->
         <div class="question-heading">
-            <h1>Question 1</h1>
+            <h1>Question 2</h1>
         </div>
-
-
 
         <!-- 4. Information div(s) -->
         <div class="question-info">
 
             <div class="main-question-block">
                 <span class="info-highlight">
-                    Which tool would you use to measure the length of an object?
+                    Which of your human senses would you use to determine the colour of an animal's fur?
                 </span>
             </div>
             <br>
 
-            <div class="info-block">
-                <!-- Example image placeholder (can be removed or replaced) -->
-                <img src="../images/q1.jpg" alt="Measurement tools">
-            </div>
+            <!-- No image for this question, so no info-block here -->
+
         </div>
         <br>
-
 
         <!-- 5. Answer div (A–D options) -->
         <div class="answer-block">
@@ -53,30 +48,28 @@
                 <br>
                 <label class="option">
                     <input type="radio" name="answer" value="A">
-                    <span>A. Thermometer</span>
+                    <span>A. Touch.</span>
                 </label>
                 <br>
                 <label class="option">
                     <input type="radio" name="answer" value="B">
-                    <span>B. Measuring cylinder</span>
+                    <span>B. Taste.</span>
                 </label>
                 <br>
                 <label class="option">
                     <input type="radio" name="answer" value="C">
-                    <span>C. Ruler</span>
+                    <span>C. Sight.</span>
                 </label>
                 <br>
                 <label class="option">
                     <input type="radio" name="answer" value="D">
-                    <span>D. Stopwatch</span>
+                    <span>D. Smell.</span>
                 </label>
                 <br>
             </div>
         </div>
 
-
-
-        <!-- 6. Navigation div -->
+        <!-- 6. Navigation div (same layout as q1) -->
         <div class="navigation-block">
             <div class="nav-group">
                 <button id="homeBtn" type="button">Home</button>
@@ -90,9 +83,9 @@
     <!-- Metadata for common.js / Firestore -->
     <script>
         window.questionConfig = {
-            id: "q1",
-            outcome: "PCE",        // placeholder outcome
-            correctAnswer: "C",   // correct for ruler
+            id: "q2",
+            outcome: "PCE",        
+            correctAnswer: "C",
             topic: "7.1"
         };
     </script>

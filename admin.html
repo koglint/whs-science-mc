@@ -40,19 +40,26 @@
     <div id="admin-section">
         <h2>Admin Dashboard</h2>
         <p>✅ Logged in as <span id="user-name"></span></p>
-        <p>(future export / admin tools go here)</p>
+    
+        <button id="export-btn">Download responses Excel</button>
+        <p id="export-status"></p>
     </div>
+
 
     <!-- Reuse your existing logic -->
     <script type="module" src="./js/main.js"></script>
     <script>
-        // extra logic to show/hide admin section once user is authenticated
+        // Backend URL (non-secret)
+        const BACKEND_BASE_URL = "https://whs-science-mc.onrender.com";
+
+        // DOM elements
         const adminSection = document.getElementById("admin-section");
         const status = document.getElementById("status");
         const userNameSpan = document.getElementById("user-name");
+        const exportBtn = document.getElementById("export-btn");
+        const exportStatus = document.getElementById("export-status");
 
-        // Wait for Firebase Auth (exposed in main.js scope)
-        // We’ll listen for changes once the module loads
+        // Show/hide admin section based on auth state
         document.addEventListener("firebaseAuthReady", () => {
             window.onAuthStateChanged?.(window.auth, (user) => {
                 if (user && user.email.endsWith("@education.nsw.gov.au")) {
@@ -65,7 +72,69 @@
                 }
             });
         });
+
+        async function downloadExcel() {
+            try {
+                exportStatus.textContent = "Generating report...";
+
+                const auth = window.auth;
+                const user = auth?.currentUser;
+
+                if (!user) {
+                    exportStatus.textContent = "Not signed in. Please log in first.";
+                    return;
+                }
+
+                // Get a fresh ID token for this user
+                const idToken = await user.getIdToken();
+
+                // For now we export from the 'responses' collection
+                const collectionPath = "responses";
+
+                const response = await fetch(
+                    `${BACKEND_BASE_URL}/api/export?collection=${encodeURIComponent(collectionPath)}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${idToken}`,
+                        },
+                    }
+                );
+
+                if (!response.ok) {
+                    if (response.status === 401 || response.status === 403) {
+                        exportStatus.textContent = "You are not authorised to export this data.";
+                    } else {
+                        const text = await response.text().catch(() => "");
+                        exportStatus.textContent =
+                            `Export failed (HTTP ${response.status}). ${text || ""}`;
+                    }
+                    return;
+                }
+
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = `${collectionPath}-export.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+
+                window.URL.revokeObjectURL(downloadUrl);
+                exportStatus.textContent = "Export complete. File downloaded.";
+            } catch (err) {
+                console.error(err);
+                exportStatus.textContent = "Export failed: " + err.message;
+            }
+        }
+
+        if (exportBtn) {
+            exportBtn.addEventListener("click", downloadExcel);
+        }
     </script>
+
 </body>
 
 </html>

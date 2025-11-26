@@ -1,5 +1,8 @@
-// common.js — shared logic for question pages WITH Firestore writes (safe version)
+// common.js — shared logic for question pages WITH Firestore writes (auth-aware version)
 
+import {
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 import {
   doc,
   setDoc,
@@ -10,6 +13,15 @@ console.log("[common.js] Module loaded for", window.location.pathname);
 
 document.addEventListener("DOMContentLoaded", () => {
   console.log("[common.js] DOMContentLoaded");
+
+  const homeBtn = document.getElementById("homeBtn");
+    if (homeBtn) {
+      homeBtn.addEventListener("click", () => {
+        console.log("[common.js] Home button clicked");
+        window.location.href = "../index.html";
+      });
+    }
+
 
   const match = window.location.pathname.match(/q(\d+)\.html$/);
   if (!match) {
@@ -40,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
     opt.addEventListener("change", () => {
       console.log("[common.js] Option changed. Selected value:", opt.value);
       options.forEach((o) => {
-        if (o.parentElement) o.parentElement.style.background = "#2a2a2a";
+        if (o.parentElement) o.parentElement.style.background = "none";
       });
       if (opt.parentElement) opt.parentElement.style.background = "#4a90e2";
     });
@@ -130,6 +142,45 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+
+// -----------------------------
+// Auth helper: ensure we have auth + user on this page
+// -----------------------------
+let authInitPromise = null;
+
+async function ensureAuthAndDbWithUser() {
+  if (authInitPromise) {
+    return authInitPromise;
+  }
+
+  authInitPromise = (async () => {
+    console.log("[common.js] ensureAuthAndDbWithUser() starting…");
+
+    // Dynamically import firebase-init.js to get auth + db
+    const mod = await import("./firebase-init.js");
+    const auth = mod.auth;
+    const db = mod.db;
+    console.log("[common.js] firebase-init imported inside ensureAuthAndDbWithUser");
+
+    // Wait for Firebase Auth to tell us the user (or null)
+    const user = await new Promise((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, (u) => {
+        console.log(
+          "[common.js] onAuthStateChanged fired on question page. User:",
+          u ? u.email : null
+        );
+        unsubscribe();
+        resolve(u);
+      });
+    });
+
+    return { auth, db, user };
+  })();
+
+  return authInitPromise;
+}
+
+
 // -----------------------------
 // Firestore write helper
 // -----------------------------
@@ -148,63 +199,68 @@ async function saveResponse({
     topic,
   });
 
-  // IMPORTANT: dynamically import firebase-init.js here,
-  // so any problems with config/fetch don't kill the whole module.
-  let auth, db;
-  try {
-    const mod = await import("./firebase-init.js");
-    auth = mod.auth;
-    db = mod.db;
-    console.log("[common.js] firebase-init imported OK in saveResponse");
-  } catch (err) {
-    console.error(
-      "[common.js] Failed to import ./firebase-init.js inside saveResponse",
-      err
-    );
-    throw err;
-  }
-
-  const user = auth.currentUser;
+  // Wait for auth + db + user to be ready on THIS page
+  const { auth, db, user } = await ensureAuthAndDbWithUser();
 
   if (!user) {
-    console.warn(
-      "[common.js] No authenticated user (auth.currentUser is null). Using 'anonymous' UID. Firestore rules may block this."
+    console.error(
+      "[common.js] No authenticated user on question page after waiting for onAuthStateChanged. " +
+      "Aborting save. You must be signed in before answers can be saved."
     );
-  } else {
-    console.log("[common.js] Current user:", user.uid, user.email);
+    throw new Error("Not signed in on this page - cannot save response.");
   }
 
-  const uid = user ? user.uid : "anonymous";
-  const docId = `${uid}_${questionId}`;
-  const ref = doc(db, "responses", docId);
+  console.log("[common.js] Using user:", user.uid, user.email);
 
-  const isCorrect =
-    correctAnswer && typeof correctAnswer === "string"
-      ? answerValue === correctAnswer
-      : null;
+const uid = user.uid;
 
-  const payload = {
-    uid,
-    questionId,
-    answer: answerValue,
-    correctAnswer: correctAnswer || null,
-    isCorrect,
-    outcome: outcome || null,
-    topic: topic || null,
-    ts: serverTimestamp(),
-  };
+// You can hard-code this for now, or later pull from a global like window.quizConfig
+const quizId = "task1_2025";
 
-  console.log(
-    "[common.js] Writing to Firestore: collection 'responses', docId:",
-    docId,
-    "payload:",
-    payload
-  );
+// ONE document per student per quiz, in the *responses* collection
+const docId = `${uid}`;
+const ref = doc(db, "responses", docId);
 
-  await setDoc(ref, payload, { merge: true });
+const isCorrect =
+  correctAnswer && typeof correctAnswer === "string"
+    ? answerValue === correctAnswer
+    : null;
 
-  console.log(
-    "[common.js] Firestore setDoc completed successfully for",
-    docId
-  );
+// Data for THIS question only
+const responseForThisQuestion = {
+  answer: answerValue,
+  correctAnswer: correctAnswer || null,
+  isCorrect,
+  outcome: outcome || null,
+  topic: topic || null,
+  ts: serverTimestamp(),
+};
+
+// NOTE: use a dotted field path so we don't overwrite the whole `responses` map
+const payload = {
+  uid,
+  email: user.email,
+  quizId,
+  [`responses.${questionId}`]: responseForThisQuestion,
+  lastUpdated: serverTimestamp(),
+};
+
+console.log(
+  "[common.js] Writing to Firestore: collection 'responses', docId:",
+  docId,
+  "payload:",
+  payload
+);
+
+await setDoc(ref, payload, { merge: true });
+
+console.log(
+  "[common.js] Firestore setDoc (merged) successfully for",
+  docId,
+  "question",
+  questionId
+);
+
+
+
 }
