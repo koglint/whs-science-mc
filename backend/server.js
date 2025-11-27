@@ -277,6 +277,197 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
 
 
 
+
+
+
+// -------------------- SENTRAL MARKBOOK EXPORT (ADMIN ONLY) --------------------
+
+// GET /api/export-sentral?quizId=task1_2025[&sciClass=7Sci3]
+app.get("/api/export-sentral", requireExportAdmin, async (req, res) => {
+  try {
+    const quizId = (req.query.quizId || "task1_2025").trim();
+    const sciClassFilter = (req.query.sciClass || "").trim(); // optional
+
+    if (!quizId) {
+      return res.status(400).json({ error: "quizId is required" });
+    }
+
+    // 1) Fetch all responses for this quiz
+    const snap = await db.collection("responses")
+      .where("quizId", "==", quizId)
+      .get();
+
+    if (snap.empty) {
+      return res.status(404).json({ error: "No responses found for this quizId" });
+    }
+
+    const responseDocs = snap.docs.map(d => d.data());
+
+    // 2) Collect unique emails for roster join
+    const emailSet = new Set();
+    for (const row of responseDocs) {
+      if (typeof row.email === "string" && row.email.trim()) {
+        emailSet.add(row.email.toLowerCase());
+      }
+    }
+
+    if (emailSet.size === 0) {
+      return res.status(400).json({ error: "No emails found in responses to join with roster" });
+    }
+
+    const emailList = Array.from(emailSet);
+    const docRefs = emailList.map(email => db.collection("roster").doc(email));
+    const rosterSnaps = await db.getAll(...docRefs);
+
+    const rosterMap = new Map();
+    rosterSnaps.forEach((snap, idx) => {
+      if (!snap.exists) return;
+      const emailKey = emailList[idx]; // already lowercased
+      rosterMap.set(emailKey, snap.data());
+    });
+
+    // 3) Build rows for Sentral
+    const rows = [];
+    let skippedNoRoster = 0;
+    let skippedClassFilter = 0;
+
+    for (const row of responseDocs) {
+      const email = (row.email || "").toLowerCase();
+      if (!email) continue;
+
+      const roster = rosterMap.get(email);
+      if (!roster || !roster.studentCode) {
+        skippedNoRoster++;
+        continue; // we don't want rows with no student code
+      }
+
+      const sciClass = roster.sciClass || "";
+      if (sciClassFilter && sciClass !== sciClassFilter) {
+        skippedClassFilter++;
+        continue;
+      }
+
+      const responsesObj = row.responses || {};
+      const questionEntries = Object.values(responsesObj);
+
+      // helper to compute integer percentage (0–100) or null
+      const percentOf = (subset) => {
+        const total = subset.length;
+        if (!total) return null;
+        const correct = subset.filter(q => q && q.isCorrect === true).length;
+        return Math.round((correct * 100) / total);
+      };
+
+      // Overall: only questions with a defined correctAnswer
+      const overallQuestions = questionEntries.filter(q =>
+        q && typeof q.correctAnswer === "string" && q.correctAnswer.trim() !== ""
+      );
+      const overallPct = percentOf(overallQuestions);
+
+      // Outcome-specific
+      const kuQs = questionEntries.filter(q => q && q.outcome === "KU");
+      const pceQs = questionEntries.filter(q => q && q.outcome === "PCE");
+      const psQs = questionEntries.filter(q => q && q.outcome === "PS");
+      const cmQs = questionEntries.filter(q => q && q.outcome === "CM");
+
+      const kuPct = percentOf(kuQs);
+      const pcePct = percentOf(pceQs);
+      const psPct = percentOf(psQs);
+      const cmPct = percentOf(cmQs);
+
+      rows.push({
+        studentCode: roster.studentCode || "",
+        firstName: roster.givenName || "",
+        surname: roster.familyName || "",
+        t1Overall: overallPct,
+        t1KU: kuPct,
+        t1PCE: pcePct,
+        t1PS: psPct,
+        t1CM: cmPct,
+      });
+    }
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        error: "No rows to export after roster join / class filter",
+        skippedNoRoster,
+        skippedClassFilter,
+      });
+    }
+
+    // 4) Sort rows by surname, then first name
+    rows.sort((a, b) => {
+      const sComp = (a.surname || "").localeCompare(b.surname || "", "en", { sensitivity: "base" });
+      if (sComp !== 0) return sComp;
+      return (a.firstName || "").localeCompare(b.firstName || "", "en", { sensitivity: "base" });
+    });
+
+    // 5) Build Excel with fixed header order
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Sentral T1");
+
+    const headers = [
+      "Student Code",
+      "Student First Name",
+      "Student Surname",
+      "T1 Overall %",
+      "T1 KU %",
+      "T1 PCE %",
+      "T1 PS %",
+      "T1 CM %",
+    ];
+    sheet.addRow(headers);
+
+    for (const r of rows) {
+      sheet.addRow([
+        r.studentCode || "",
+        r.firstName || "",
+        r.surname || "",
+        r.t1Overall != null ? r.t1Overall : "",
+        r.t1KU != null ? r.t1KU : "",
+        r.t1PCE != null ? r.t1PCE : "",
+        r.t1PS != null ? r.t1PS : "",
+        r.t1CM != null ? r.t1CM : "",
+      ]);
+    }
+
+    // Some simple column widths
+    sheet.columns = [
+      { width: 15 },
+      { width: 18 },
+      { width: 18 },
+      { width: 12 },
+      { width: 10 },
+      { width: 12 },
+      { width: 10 },
+      { width: 10 },
+    ];
+
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const safeClassPart = sciClassFilter ? `_class-${sciClassFilter}` : "_all-classes";
+    const fileName = `sentral_T1_${quizId}${safeClassPart}.xlsx`;
+
+    res.header("Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.attachment(fileName);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("Sentral export error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+
+
+
+
 // -------------------- ROSTER UPLOAD (XLS/XLSX, ADMIN ONLY) --------------------
 
 // POST /api/roster-upload
@@ -317,6 +508,7 @@ app.post(
       });
 
       const requiredHeaders = [
+        "studentCode",
         "email",
         "givenName",
         "familyName",
@@ -358,6 +550,9 @@ app.post(
           return String(cell).trim();
         };
 
+        const studentCode = getVal("studentCode");
+
+
         const emailRaw = getVal("email");
         if (!emailRaw) {
           skipped++;
@@ -380,6 +575,7 @@ app.post(
         batch.set(
           docRef,
           {
+            studentCode,
             email,
             givenName,
             familyName,

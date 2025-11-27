@@ -48,6 +48,20 @@
         <h2>Admin Dashboard</h2>
         <p>✅ Logged in as <span id="user-name"></span></p>
 
+
+        <div class="section-block">
+            <h3>Export Sentral Markbook (T1)</h3>
+            <p>
+                Quiz ID: <code>task1_2025</code> (hard-coded for now)<br>
+                Sci class filter (optional, e.g. <code>7Sci3</code> or <code>10SciASP</code>):
+            </p>
+            <input type="text" id="sentralClassFilter" placeholder="Leave blank for all classes">
+            <br>
+            <button id="sentral-export-btn">Download Sentral T1 Excel</button>
+            <p id="sentral-export-status"></p>
+        </div>
+
+
         <div class="section-block">
             <h3>Export responses</h3>
             <button id="export-btn">Download responses Excel</button>
@@ -78,6 +92,10 @@
         const userNameSpan = document.getElementById("user-name");
         const exportBtn = document.getElementById("export-btn");
         const exportStatus = document.getElementById("export-status");
+
+        const sentralClassFilterInput = document.getElementById("sentralClassFilter");
+        const sentralExportBtn = document.getElementById("sentral-export-btn");
+        const sentralExportStatus = document.getElementById("sentral-export-status");
 
         const rosterFileInput = document.getElementById("rosterFile");
         const uploadRosterBtn = document.getElementById("uploadRosterBtn");
@@ -196,6 +214,75 @@
         }
 
         uploadRosterBtn.addEventListener("click", uploadRoster);
+
+
+        // -------- Sentral Markbook export (T1) --------
+            async function downloadSentralMarkbook() {
+                sentralExportStatus.textContent = "";
+
+                if (!currentUser) {
+                    sentralExportStatus.textContent = "Not signed in. Please log in first.";
+                    return;
+                }
+
+                try {
+                    sentralExportStatus.textContent = "Generating Sentral file...";
+
+                    const idToken = await currentUser.getIdToken();
+
+                    const quizId = "task1_2025"; // hard-coded for now
+                    let url = `${BACKEND_BASE_URL}/api/export-sentral?quizId=${encodeURIComponent(quizId)}`;
+
+                    const sciClass = (sentralClassFilterInput?.value || "").trim();
+                    if (sciClass) {
+                        url += `&sciClass=${encodeURIComponent(sciClass)}`;
+                    }
+
+                    const response = await fetch(url, {
+                        method: "GET",
+                        headers: { Authorization: `Bearer ${idToken}` },
+                    });
+
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => "");
+                        if (response.status === 404) {
+                            sentralExportStatus.textContent =
+                                `No data to export (HTTP 404). ${text || ""}`;
+                        } else if (response.status === 401 || response.status === 403) {
+                            sentralExportStatus.textContent =
+                                "You are not authorised to export Sentral data.";
+                        } else {
+                            sentralExportStatus.textContent =
+                                `Sentral export failed (HTTP ${response.status}). ${text || ""}`;
+                        }
+                        return;
+                    }
+
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+
+                    const sciSafe = sciClass ? `_class-${sciClass}` : "_all-classes";
+                    const fileName = `sentral_T1_${quizId}${sciSafe}.xlsx`;
+
+                    const a = document.createElement("a");
+                    a.href = downloadUrl;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+
+                    window.URL.revokeObjectURL(downloadUrl);
+                    sentralExportStatus.textContent = "Sentral export complete. File downloaded.";
+                } catch (err) {
+                    console.error("Sentral export error (frontend):", err);
+                    sentralExportStatus.textContent = "Sentral export failed: " + err.message;
+                }
+            }
+
+            if (sentralExportBtn) {
+                sentralExportBtn.addEventListener("click", downloadSentralMarkbook);
+            }
+
     </script>
 
 </body>

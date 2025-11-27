@@ -73,20 +73,7 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-// --- Test Firestore Write ---
-if (writeBtn) {
-  writeBtn.addEventListener("click", async () => {
-    const user = auth.currentUser;
-    if (!user) return alert("Please sign in first.");
 
-    await setDoc(doc(db, "testCollection", user.uid), {
-      name: user.displayName,
-      email: user.email,
-      timestamp: new Date(),
-    });
-    alert("Wrote Firestore doc for " + user.email);
-  });
-}
 
 // --- Start Quiz button ---
 if (startQuizBtn) {

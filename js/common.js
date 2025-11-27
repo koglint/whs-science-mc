@@ -23,6 +23,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
+  // NEW: logged-in user display span
+  const loggedInSpan = document.getElementById("loggedInUser");
+
+  // Use existing auth helper to get user and update the info bar
+  if (loggedInSpan) {
+    ensureAuthAndDbWithUser()
+      .then(({ user }) => {
+        if (user && user.email) {
+          loggedInSpan.textContent = user.email;
+        } else {
+          loggedInSpan.textContent = "(not signed in)";
+        }
+      })
+      .catch((err) => {
+        console.error("[common.js] Error getting user for info bar:", err);
+        loggedInSpan.textContent = "(error)";
+      });
+  }
+
   const match = window.location.pathname.match(/q(\d+)\.html$/);
   if (!match) {
     console.warn(
