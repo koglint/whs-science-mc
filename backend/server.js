@@ -148,7 +148,7 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
 
     // Fetch all docs from the specified collection
     const snapshot = await db.collection(collectionPath).get();
-    const data = snapshot.docs.map(doc => ({
+    let data = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     }));
@@ -157,7 +157,71 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
       return res.status(404).json({ error: "No data found" });
     }
 
-    // Build Excel
+    // --------------------------------------------------
+    // NEW: join with roster when exporting 'responses'
+    // --------------------------------------------------
+    if (collectionPath === "responses") {
+      // Gather unique emails from responses
+      const emailSet = new Set();
+      for (const row of data) {
+        if (typeof row.email === "string" && row.email.trim()) {
+          emailSet.add(row.email.toLowerCase());
+        }
+      }
+
+      if (emailSet.size > 0) {
+        const emailList = Array.from(emailSet);
+
+        // Build docRefs for roster/{email}
+        const docRefs = emailList.map(email =>
+          db.collection("roster").doc(email)
+        );
+
+        // Fetch all roster docs in one go
+        const rosterSnaps = await db.getAll(...docRefs);
+
+        // Map email -> rosterData
+        const rosterMap = new Map();
+        rosterSnaps.forEach((snap, idx) => {
+          if (!snap.exists) return;
+          const rosterData = snap.data();
+          const email = emailList[idx]; // lowercased
+          rosterMap.set(email, rosterData);
+        });
+
+        // Enrich each response row with roster info, if available
+        data = data.map(row => {
+          const email =
+            typeof row.email === "string" ? row.email.toLowerCase() : "";
+          const roster = rosterMap.get(email);
+
+          if (roster) {
+            const givenName = roster.givenName || "";
+            const familyName = roster.familyName || "";
+            const fullName = (givenName + " " + familyName).trim();
+
+            return {
+              ...row,
+              // overwrite or add these fields from roster
+              email: roster.email || row.email || email,
+              givenName,
+              familyName,
+              fullName,
+              yearLevel: roster.yearLevel ?? row.yearLevel ?? null,
+              sciClass: roster.sciClass || row.sciClass || "",
+            };
+          }
+
+          // no roster match – leave row as-is
+          return row;
+        });
+      }
+    }
+
+    // --------------------------------------------------
+    // Build Excel from enriched data (same as before)
+    // --------------------------------------------------
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Export");
 
@@ -210,6 +274,7 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 // -------------------- ROSTER UPLOAD (XLS/XLSX, ADMIN ONLY) --------------------
