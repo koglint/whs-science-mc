@@ -79,6 +79,6 @@ onAuthStateChanged(auth, (user) => {
 if (startQuizBtn) {
   startQuizBtn.addEventListener("click", () => {
     // go to first question
-    window.location.href = "questions/q1.html";
+    window.location.href = "questions/quiz.html?q=1"; // original was q1.html
   });
 }

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>WHS Science – Quiz</title>
+    <!-- Reuse your existing base styles -->
+    <link rel="stylesheet" href="../css/questions-base.css">
+</head>
+
+<body>
+    <div class="question-page">
+
+        <!-- 1. Info div (user info) -->
+        <div class="info-bar">
+            <span class="label">Logged in as:</span>
+            <span id="loggedInUser">loading</span>
+        </div>
+
+        <!-- 3. Reword div -->
+        <div class="reword-block">
+            <button id="rewordBtn" type="button">Reword the question</button>
+        </div>
+
+        <!-- 2. Heading div -->
+        <div class="question-heading">
+            <h1 id="questionTitle">Question</h1>
+        </div>
+
+        <!-- 4. Information div(s) – dynamic blocks go here -->
+        <div class="question-info" id="questionBody">
+            <!-- JS will inject .info-block, .main-question-block, images, etc. -->
+        </div>
+
+        <!-- 5. Answer div (A–D options) -->
+        <div class="answer-block">
+            <div class="options" id="optionsContainer">
+                <!-- JS will inject labels + radios here -->
+            </div>
+        </div>
+
+        <!-- 6. Navigation div -->
+        <div class="navigation-block">
+            <div class="nav-group">
+                <button id="homeBtn" type="button">Home</button>
+                <button id="prevBtn" type="button">Previous question</button>
+                <button id="nextBtn" type="button">Next question</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Single entry point for all questions -->
+    <script type="module" src="../js/quiz.js"></script>
+</body>
+
+</html>
