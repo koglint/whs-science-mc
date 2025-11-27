@@ -19,7 +19,7 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
 
 
-// -------------------- EXPORT AUTH MIDDLEWARE --------------------
+// -------------------- AUTH MIDDLEWARE --------------------
 
 // Parse comma-separated list of admin emails from env
 const exportAdmins = (process.env.EXPORT_ADMINS || "")
@@ -27,7 +27,7 @@ const exportAdmins = (process.env.EXPORT_ADMINS || "")
   .map(e => e.trim().toLowerCase())
   .filter(Boolean);
 
-// Middleware: require a valid Firebase ID token and admin email
+// Middleware: require a valid Firebase ID token and admin email (for admin-only routes)
 async function requireExportAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization || "";
@@ -49,11 +49,34 @@ async function requireExportAdmin(req, res, next) {
       return res.status(403).json({ error: "Not authorised for export" });
     }
 
-    // Attach user info if needed later
     req.user = decoded;
     next();
   } catch (err) {
-    console.error("Auth error:", err);
+    console.error("Auth error (export admin):", err);
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+// Middleware: require *any* valid Firebase user (no admin check)
+// We'll use this for /api/profile, student-side stuff.
+async function requireFirebaseUser(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const [, token] = authHeader.split(" ");
+
+    if (!token) {
+      return res.status(401).json({ error: "Missing Authorization Bearer token" });
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
+    if (!decoded.email) {
+      return res.status(403).json({ error: "No email on token" });
+    }
+
+    req.user = decoded;
+    next();
+  } catch (err) {
+    console.error("Auth error (generic user):", err);
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 }
@@ -78,6 +101,44 @@ app.get("/api/config", (req, res) => {
 });
 
 
+// -------------------- PROFILE LOOKUP (USES ROSTER) --------------------
+
+// GET /api/profile
+// Any logged-in user can call this.
+// Returns roster info for the caller's email, or rosterMatched:false if not found.
+app.get("/api/profile", requireFirebaseUser, async (req, res) => {
+  try {
+    const email = req.user.email.toLowerCase();
+
+    const docRef = db.collection("roster").doc(email);
+    const snap = await docRef.get();
+
+    if (!snap.exists) {
+      // Not found in roster
+      return res.json({
+        rosterMatched: false,
+        email,
+      });
+    }
+
+    const data = snap.data();
+
+    res.json({
+      rosterMatched: true,
+      email: data.email || email,
+      givenName: data.givenName || "",
+      familyName: data.familyName || "",
+      yearLevel: data.yearLevel || null,
+      sciClass: data.sciClass || "",
+    });
+  } catch (err) {
+    console.error("Profile lookup error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// -------------------- SECURE EXCEL EXPORT (ADMIN ONLY) --------------------
 
 // Secure Excel export: only allowed admins can access
 app.get("/api/export", requireExportAdmin, async (req, res) => {
@@ -151,7 +212,7 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
 });
 
 
-// -------------------- ROSTER UPLOAD (XLS/XLSX) --------------------
+// -------------------- ROSTER UPLOAD (XLS/XLSX, ADMIN ONLY) --------------------
 
 // POST /api/roster-upload
 // Protected by requireExportAdmin (same as export)
