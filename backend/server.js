@@ -2,11 +2,17 @@ import express from "express";
 import cors from "cors";
 import admin from "firebase-admin";
 import ExcelJS from "exceljs";
-
+import multer from "multer";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Multer setup for file uploads (memory storage, 5 MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
@@ -59,7 +65,7 @@ app.get("/api/test", async (req, res) => {
   res.json({ status: "ok", collections: collections.map(c => c.id) });
 });
 
-// ✅ NEW: Serve Firebase public config to frontend
+// ✅ Serve Firebase public config to frontend
 app.get("/api/config", (req, res) => {
   res.json({
     apiKey: process.env.PUBLIC_FIREBASE_APIKEY,
@@ -145,7 +151,145 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
 });
 
 
+// -------------------- ROSTER UPLOAD (XLS/XLSX) --------------------
+
+// POST /api/roster-upload
+// Protected by requireExportAdmin (same as export)
+// Accepts multipart/form-data with field "file" (the .xls/.xlsx)
+// Expects headers: email, givenName, familyName, yearLevel, sciClass
+app.post(
+  "/api/roster-upload",
+  requireExportAdmin,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+      const sheet = workbook.worksheets[0];
+
+      if (!sheet) {
+        return res.status(400).json({ error: "No worksheet found in file" });
+      }
+
+      // Map headers -> column indices
+      const headerRow = sheet.getRow(1);
+      const headerMap = {};
+      headerRow.eachCell((cell, colNumber) => {
+        const raw = cell.value;
+        const text =
+          typeof raw === "string"
+            ? raw
+            : raw && raw.text
+            ? raw.text
+            : String(raw || "");
+        const key = text.trim();
+        if (key) headerMap[key] = colNumber;
+      });
+
+      const requiredHeaders = [
+        "email",
+        "givenName",
+        "familyName",
+        "yearLevel",
+        "sciClass",
+      ];
+      const missing = requiredHeaders.filter(h => !headerMap[h]);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: "Missing required header(s)",
+          missing,
+        });
+      }
+
+      let processed = 0;
+      let skipped = 0;
+
+      // Firestore batch write, commit every ~400 to stay under limits
+      let batch = db.batch();
+      let batchCount = 0;
+      const MAX_BATCH = 400;
+
+      const lastRow = sheet.actualRowCount;
+
+      for (let rowNum = 2; rowNum <= lastRow; rowNum++) {
+        const row = sheet.getRow(rowNum);
+        // Skip completely empty rows
+        if (row.values.every(v => v === null || v === "")) {
+          continue;
+        }
+
+        const getVal = (headerName) => {
+          const col = headerMap[headerName];
+          const cell = row.getCell(col).value;
+          if (cell == null) return "";
+          if (typeof cell === "string") return cell.trim();
+          if (typeof cell === "number") return String(cell);
+          if (cell && typeof cell.text === "string") return cell.text.trim();
+          return String(cell).trim();
+        };
+
+        const emailRaw = getVal("email");
+        if (!emailRaw) {
+          skipped++;
+          continue;
+        }
+        const email = emailRaw.toLowerCase();
+
+        const givenName = getVal("givenName");
+        const familyName = getVal("familyName");
+        const yearLevelRaw = getVal("yearLevel");
+        const sciClass = getVal("sciClass");
+
+        const yearLevelNum = parseInt(yearLevelRaw, 10);
+        if (!email || Number.isNaN(yearLevelNum) || !sciClass) {
+          skipped++;
+          continue;
+        }
+
+        const docRef = db.collection("roster").doc(email);
+        batch.set(
+          docRef,
+          {
+            email,
+            givenName,
+            familyName,
+            yearLevel: yearLevelNum,
+            sciClass,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        batchCount++;
+        processed++;
+
+        if (batchCount >= MAX_BATCH) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+
+      if (batchCount > 0) {
+        await batch.commit();
+      }
+
+      res.json({
+        status: "ok",
+        processed,
+        skipped,
+      });
+    } catch (err) {
+      console.error("Roster upload error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server running on", PORT));
-

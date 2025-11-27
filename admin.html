@@ -21,7 +21,14 @@
 
         #admin-section {
             display: block;
+            /* keep it always visible */
             margin-top: 2rem;
+        }
+
+        .section-block {
+            margin-top: 2rem;
+            border-top: 1px solid #444;
+            padding-top: 1.5rem;
         }
     </style>
 </head>
@@ -36,79 +43,76 @@
         <div id="status"></div>
     </div>
 
-    <!-- Admin-only section -->
+    <!-- Admin section -->
     <div id="admin-section">
         <h2>Admin Dashboard</h2>
         <p>✅ Logged in as <span id="user-name"></span></p>
-    
-        <button id="export-btn">Download responses Excel</button>
-        <p id="export-status"></p>
+
+        <div class="section-block">
+            <h3>Export responses</h3>
+            <button id="export-btn">Download responses Excel</button>
+            <p id="export-status"></p>
+        </div>
+
+        <div class="section-block">
+            <h3>Upload roster (email, givenName, familyName, yearLevel, sciClass)</h3>
+            <input type="file" id="rosterFile" accept=".xls,.xlsx" />
+            <button id="uploadRosterBtn">Upload roster</button>
+            <p id="roster-upload-status"></p>
+        </div>
     </div>
 
-
-    <!-- Reuse your existing logic -->
+    <!-- Load shared logic (login buttons, UI updates, etc.) -->
     <script type="module" src="./js/main.js"></script>
-    <script>
-        // Backend URL (non-secret)
+
+    <!-- Admin-specific logic -->
+    <script type="module">
+        // Import Firebase Auth directly so admin.html does not depend on globals
+        import { auth } from "./js/firebase-init.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+
         const BACKEND_BASE_URL = "https://whs-science-mc.onrender.com";
 
         // DOM elements
-        const adminSection = document.getElementById("admin-section");
-        const status = document.getElementById("status");
         const userNameSpan = document.getElementById("user-name");
         const exportBtn = document.getElementById("export-btn");
         const exportStatus = document.getElementById("export-status");
 
-            // Show/hide admin section based on auth state.
-            // We poll until main.js has put auth + onAuthStateChanged on window.
-            function setupAdminAuthListener() {
-                if (!window.auth || !window.onAuthStateChanged) {
-                    // Try again shortly – main.js may not have finished initialising yet.
-                    setTimeout(setupAdminAuthListener, 200);
-                    return;
-                }
+        const rosterFileInput = document.getElementById("rosterFile");
+        const uploadRosterBtn = document.getElementById("uploadRosterBtn");
+        const rosterUploadStatus = document.getElementById("roster-upload-status");
 
-                window.onAuthStateChanged(window.auth, (user) => {
-                    if (user && user.email && user.email.endsWith("@education.nsw.gov.au")) {
-                        adminSection.style.display = "block";
-                        userNameSpan.textContent = user.displayName || user.email;
-                        status.textContent = "";
-                    } else {
-                        adminSection.style.display = "none";
-                        status.textContent = "Please sign in with your DoE account.";
-                    }
-                });
+        let currentUser = null;
+
+        // Watch for login/logout
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user || null;
+
+            if (user) {
+                userNameSpan.textContent = user.displayName || user.email;
+            } else {
+                userNameSpan.textContent = "(not signed in)";
+            }
+        });
+
+        // -------- Export handler (unchanged) --------
+        async function downloadExcel() {
+            exportStatus.textContent = "Generating report...";
+
+            if (!currentUser) {
+                exportStatus.textContent = "Not signed in. Please log in first.";
+                return;
             }
 
-            // Start polling for auth being ready
-            setupAdminAuthListener();
-
-
-        async function downloadExcel() {
             try {
-                exportStatus.textContent = "Generating report...";
-
-                const auth = window.auth;
-                const user = auth?.currentUser;
-
-                if (!user) {
-                    exportStatus.textContent = "Not signed in. Please log in first.";
-                    return;
-                }
-
-                // Get a fresh ID token for this user
-                const idToken = await user.getIdToken();
-
-                // For now we export from the 'responses' collection
+                const idToken = await currentUser.getIdToken();
                 const collectionPath = "responses";
 
                 const response = await fetch(
                     `${BACKEND_BASE_URL}/api/export?collection=${encodeURIComponent(collectionPath)}`,
                     {
                         method: "GET",
-                        headers: {
-                            Authorization: `Bearer ${idToken}`,
-                        },
+                        headers: { Authorization: `Bearer ${idToken}` },
                     }
                 );
 
@@ -141,9 +145,56 @@
             }
         }
 
-        if (exportBtn) {
-            exportBtn.addEventListener("click", downloadExcel);
+        exportBtn.addEventListener("click", downloadExcel);
+
+        // -------- Roster upload handler (new) --------
+        async function uploadRoster() {
+            rosterUploadStatus.textContent = "";
+
+            if (!currentUser) {
+                rosterUploadStatus.textContent = "Not signed in. Please log in first.";
+                return;
+            }
+
+            const file = rosterFileInput.files[0];
+            if (!file) {
+                rosterUploadStatus.textContent = "Please choose an .xls or .xlsx file first.";
+                return;
+            }
+
+            try {
+                rosterUploadStatus.textContent = "Uploading roster...";
+
+                const idToken = await currentUser.getIdToken();
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const response = await fetch(`${BACKEND_BASE_URL}/api/roster-upload`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${idToken}`,
+                        // Don't set Content-Type manually; browser sets multipart boundary
+                    },
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const text = await response.text().catch(() => "");
+                    rosterUploadStatus.textContent =
+                        `Roster upload failed (HTTP ${response.status}). ${text || ""}`;
+                    return;
+                }
+
+                const result = await response.json();
+                rosterUploadStatus.textContent =
+                    `Roster upload complete. Processed: ${result.processed}, Skipped: ${result.skipped}.`;
+            } catch (err) {
+                console.error("Roster upload error:", err);
+                rosterUploadStatus.textContent = "Roster upload failed: " + err.message;
+            }
         }
+
+        uploadRosterBtn.addEventListener("click", uploadRoster);
     </script>
 
 </body>
