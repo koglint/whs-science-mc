@@ -347,8 +347,31 @@ app.get("/api/export-sentral", requireExportAdmin, async (req, res) => {
         continue;
       }
 
-      const responsesObj = row.responses || {};
-      const questionEntries = Object.values(responsesObj);
+
+
+
+    // Build a unified responses object regardless of how it was stored
+    const responsesObj = {};
+
+    // Case 1: nested map like { responses: { q1: {...}, q2: {...} } }
+    if (row.responses && typeof row.responses === "object") {
+      Object.assign(responsesObj, row.responses);
+    }
+
+    // Case 2: flattened fields like "responses.q1", "responses.q2" on the doc
+    for (const [key, value] of Object.entries(row)) {
+      if (key.startsWith("responses.") && value && typeof value === "object") {
+        const qid = key.slice("responses.".length); // "responses.q1" -> "q1"
+        responsesObj[qid] = value;
+      }
+    }
+
+    const questionEntries = Object.values(responsesObj);
+
+
+
+
+
 
       // helper to compute integer percentage (0–100) or null
       const percentOf = (subset) => {
