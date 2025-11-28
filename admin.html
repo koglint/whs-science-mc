@@ -60,6 +60,34 @@
             <button id="sentral-export-btn">Download Sentral T1 Excel</button>
             <p id="sentral-export-status"></p>
         </div>
+        
+
+        <div class="section-block">
+            <h3>Student Report (PDF)</h3>
+            <p>
+                Enter the quiz ID, class and student email to download a PDF report
+                for that student and task.
+            </p>
+            <p>
+                Quiz ID (e.g. <code>task1_2025</code>):
+                <br>
+                <input type="text" id="sr-quizId" placeholder="task1_2025">
+            </p>
+            <p>
+                Sci class (e.g. <code>10SciASP</code>):
+                <br>
+                <input type="text" id="sr-sciClass" placeholder="10SciASP">
+            </p>
+            <p>
+                Student email (must match roster + responses):
+                <br>
+                <input type="email" id="sr-studentEmail" placeholder="student@education.nsw.gov.au">
+            </p>
+        
+            <button id="sr-generate">Download Student Report (PDF)</button>
+            <p id="sr-status"></p>
+        </div>
+
 
 
         <div class="section-block">
@@ -100,6 +128,13 @@
         const rosterFileInput = document.getElementById("rosterFile");
         const uploadRosterBtn = document.getElementById("uploadRosterBtn");
         const rosterUploadStatus = document.getElementById("roster-upload-status");
+
+        const srQuizIdInput = document.getElementById("sr-quizId");
+        const srSciClassInput = document.getElementById("sr-sciClass");
+        const srStudentEmailInput = document.getElementById("sr-studentEmail");
+        const srGenerateBtn = document.getElementById("sr-generate");
+        const srStatus = document.getElementById("sr-status");
+
 
         let currentUser = null;
 
@@ -282,6 +317,82 @@
             if (sentralExportBtn) {
                 sentralExportBtn.addEventListener("click", downloadSentralMarkbook);
             }
+
+            if (srGenerateBtn) {
+                    srGenerateBtn.addEventListener("click", downloadStudentReport);
+            }
+
+
+            // -------- Student Report PDF export --------
+                async function downloadStudentReport() {
+                    srStatus.textContent = "";
+
+                    if (!currentUser) {
+                        srStatus.textContent = "Not signed in. Please log in first.";
+                        return;
+                    }
+
+                    const quizId = (srQuizIdInput?.value || "").trim();
+                    const sciClass = (srSciClassInput?.value || "").trim();
+                    const studentEmail = (srStudentEmailInput?.value || "").trim().toLowerCase();
+
+                    if (!quizId || !sciClass || !studentEmail) {
+                        srStatus.textContent = "Please enter quiz ID, sci class and student email.";
+                        return;
+                    }
+
+                    try {
+                        srStatus.textContent = "Generating student report...";
+
+                        const idToken = await currentUser.getIdToken();
+
+                        const url =
+                            `${BACKEND_BASE_URL}/api/student-report` +
+                            `?quizId=${encodeURIComponent(quizId)}` +
+                            `&sciClass=${encodeURIComponent(sciClass)}` +
+                            `&studentEmail=${encodeURIComponent(studentEmail)}`;
+
+                        const response = await fetch(url, {
+                            method: "GET",
+                            headers: {
+                                Authorization: `Bearer ${idToken}`,
+                            },
+                        });
+
+                        if (!response.ok) {
+                            const text = await response.text().catch(() => "");
+                            if (response.status === 401 || response.status === 403) {
+                                srStatus.textContent = "You are not authorised to generate this report.";
+                            } else if (response.status === 404) {
+                                srStatus.textContent = `No data found for that student/quiz/class (HTTP 404). ${text || ""}`;
+                            } else {
+                                srStatus.textContent =
+                                    `Student report failed (HTTP ${response.status}). ${text || ""}`;
+                            }
+                            return;
+                        }
+
+                        const blob = await response.blob();
+                        const downloadUrl = window.URL.createObjectURL(blob);
+
+                        const safeEmail = studentEmail.replace(/[^a-z0-9_\-]+/gi, "_");
+                        const fileName = `StudentReport_${safeEmail}_${quizId}.pdf`;
+
+                        const a = document.createElement("a");
+                        a.href = downloadUrl;
+                        a.download = fileName;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+
+                        window.URL.revokeObjectURL(downloadUrl);
+                        srStatus.textContent = "Student report downloaded.";
+                    } catch (err) {
+                        console.error("Student report error (frontend):", err);
+                        srStatus.textContent = "Student report failed: " + err.message;
+                    }
+                }
+
 
     </script>
 
