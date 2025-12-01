@@ -63,30 +63,32 @@
         
 
         <div class="section-block">
-            <h3>Student Report (PDF)</h3>
+            <h3>Student Reports (PDF, per class)</h3>
             <p>
-                Enter the quiz ID, class and student email to download a PDF report
-                for that student and task.
-            </p>
-            <p>
-                Quiz ID (e.g. <code>task1_2025</code>):
-                <br>
-                <input type="text" id="sr-quizId" placeholder="task1_2025">
-            </p>
-            <p>
-                Sci class (e.g. <code>10SciASP</code>):
-                <br>
-                <input type="text" id="sr-sciClass" placeholder="10SciASP">
-            </p>
-            <p>
-                Student email (must match roster + responses):
-                <br>
-                <input type="email" id="sr-studentEmail" placeholder="student@education.nsw.gov.au">
+                Select a quiz and class to download a PDF containing a separate report
+                for each student in that class.
             </p>
         
-            <button id="sr-generate">Download Student Report (PDF)</button>
+            <p>
+                Quiz:
+                <br>
+                <select id="sr-quizSelect">
+                    <option value="" disabled selected>Loading quizzes...</option>
+                </select>
+            </p>
+        
+            <p>
+                Sci class:
+                <br>
+                <select id="sr-classSelect" disabled>
+                    <option value="" disabled selected>Select a quiz first</option>
+                </select>
+            </p>
+        
+            <button id="sr-generate-class">Download class student reports (PDF)</button>
             <p id="sr-status"></p>
         </div>
+
 
 
 
@@ -109,149 +111,167 @@
     <script type="module" src="./js/main.js"></script>
 
     <!-- Admin-specific logic -->
-    <script type="module">
-        // Import Firebase Auth directly so admin.html does not depend on globals
-        import { auth } from "./js/firebase-init.js";
-        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+        <!-- Admin-specific logic -->
+        <script type="module">
+            // Import Firebase Auth directly so admin.html does not depend on globals
+            import { auth } from "./js/firebase-init.js";
+            import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-        const BACKEND_BASE_URL = "https://whs-science-mc.onrender.com";
+            const BACKEND_BASE_URL = "https://whs-science-mc.onrender.com";
 
-        // DOM elements
-        const userNameSpan = document.getElementById("user-name");
-        const exportBtn = document.getElementById("export-btn");
-        const exportStatus = document.getElementById("export-status");
+            // DOM elements
+            const userNameSpan = document.getElementById("user-name");
+            const exportBtn = document.getElementById("export-btn");
+            const exportStatus = document.getElementById("export-status");
 
-        const sentralClassFilterInput = document.getElementById("sentralClassFilter");
-        const sentralExportBtn = document.getElementById("sentral-export-btn");
-        const sentralExportStatus = document.getElementById("sentral-export-status");
+            const sentralClassFilterInput = document.getElementById("sentralClassFilter");
+            const sentralExportBtn = document.getElementById("sentral-export-btn");
+            const sentralExportStatus = document.getElementById("sentral-export-status");
 
-        const rosterFileInput = document.getElementById("rosterFile");
-        const uploadRosterBtn = document.getElementById("uploadRosterBtn");
-        const rosterUploadStatus = document.getElementById("roster-upload-status");
+            const rosterFileInput = document.getElementById("rosterFile");
+            const uploadRosterBtn = document.getElementById("uploadRosterBtn");
+            const rosterUploadStatus = document.getElementById("roster-upload-status");
 
-        const srQuizIdInput = document.getElementById("sr-quizId");
-        const srSciClassInput = document.getElementById("sr-sciClass");
-        const srStudentEmailInput = document.getElementById("sr-studentEmail");
-        const srGenerateBtn = document.getElementById("sr-generate");
-        const srStatus = document.getElementById("sr-status");
+            // NEW: student report elements
+            const srQuizSelect = document.getElementById("sr-quizSelect");
+            const srClassSelect = document.getElementById("sr-classSelect");
+            const srGenerateClassBtn = document.getElementById("sr-generate-class");
+            const srStatus = document.getElementById("sr-status");
 
+            let currentUser = null;
 
-        let currentUser = null;
+            // Watch for login/logout
+            onAuthStateChanged(auth, async (user) => {
+                currentUser = user || null;
 
-        // Watch for login/logout
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user || null;
+                if (user) {
+                    userNameSpan.textContent = user.displayName || user.email;
+                    // Try to load quiz list when admin logs in
+                    await loadQuizOptions();
+                } else {
+                    userNameSpan.textContent = "(not signed in)";
+                    clearQuizAndClassOptions();
+                }
+            });
 
-            if (user) {
-                userNameSpan.textContent = user.displayName || user.email;
-            } else {
-                userNameSpan.textContent = "(not signed in)";
+            function clearQuizAndClassOptions() {
+                if (srQuizSelect) {
+                    srQuizSelect.innerHTML =
+                        '<option value="" disabled selected>Sign in to load quizzes</option>';
+                }
+                if (srClassSelect) {
+                    srClassSelect.innerHTML =
+                        '<option value="" disabled selected>Select a quiz first</option>';
+                    srClassSelect.disabled = true;
+                }
             }
-        });
 
-        // -------- Export handler (unchanged) --------
-        async function downloadExcel() {
-            exportStatus.textContent = "Generating report...";
+            // -------- Export responses Excel --------
+            async function downloadExcel() {
+                exportStatus.textContent = "Generating report...";
 
-            if (!currentUser) {
-                exportStatus.textContent = "Not signed in. Please log in first.";
-                return;
-            }
+                if (!currentUser) {
+                    exportStatus.textContent = "Not signed in. Please log in first.";
+                    return;
+                }
 
-            try {
-                const idToken = await currentUser.getIdToken();
-                const collectionPath = "responses";
+                try {
+                    const idToken = await currentUser.getIdToken();
+                    const collectionPath = "responses";
 
-                const response = await fetch(
-                    `${BACKEND_BASE_URL}/api/export?collection=${encodeURIComponent(collectionPath)}`,
-                    {
-                        method: "GET",
-                        headers: { Authorization: `Bearer ${idToken}` },
+                    const response = await fetch(
+                        `${BACKEND_BASE_URL}/api/export?collection=${encodeURIComponent(collectionPath)}`,
+                        {
+                            method: "GET",
+                            headers: { Authorization: `Bearer ${idToken}` },
+                        }
+                    );
+
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            exportStatus.textContent = "You are not authorised to export this data.";
+                        } else {
+                            const text = await response.text().catch(() => "");
+                            exportStatus.textContent =
+                                `Export failed (HTTP ${response.status}). ${text || ""}`;
+                        }
+                        return;
                     }
-                );
 
-                if (!response.ok) {
-                    if (response.status === 401 || response.status === 403) {
-                        exportStatus.textContent = "You are not authorised to export this data.";
-                    } else {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+
+                    const a = document.createElement("a");
+                    a.href = downloadUrl;
+                    a.download = `${collectionPath}-export.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+
+                    window.URL.revokeObjectURL(downloadUrl);
+                    exportStatus.textContent = "Export complete. File downloaded.";
+                } catch (err) {
+                    console.error(err);
+                    exportStatus.textContent = "Export failed: " + err.message;
+                }
+            }
+
+            if (exportBtn) {
+                exportBtn.addEventListener("click", downloadExcel);
+            }
+
+            // -------- Roster upload handler --------
+            async function uploadRoster() {
+                rosterUploadStatus.textContent = "";
+
+                if (!currentUser) {
+                    rosterUploadStatus.textContent = "Not signed in. Please log in first.";
+                    return;
+                }
+
+                const file = rosterFileInput.files[0];
+                if (!file) {
+                    rosterUploadStatus.textContent = "Please choose an .xls or .xlsx file first.";
+                    return;
+                }
+
+                try {
+                    rosterUploadStatus.textContent = "Uploading roster...";
+
+                    const idToken = await currentUser.getIdToken();
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    const response = await fetch(`${BACKEND_BASE_URL}/api/roster-upload`, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${idToken}`,
+                            // Don't set Content-Type manually; browser sets multipart boundary
+                        },
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
                         const text = await response.text().catch(() => "");
-                        exportStatus.textContent =
-                            `Export failed (HTTP ${response.status}). ${text || ""}`;
+                        rosterUploadStatus.textContent =
+                            `Roster upload failed (HTTP ${response.status}). ${text || ""}`;
+                        return;
                     }
-                    return;
-                }
 
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-
-                const a = document.createElement("a");
-                a.href = downloadUrl;
-                a.download = `${collectionPath}-export.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-
-                window.URL.revokeObjectURL(downloadUrl);
-                exportStatus.textContent = "Export complete. File downloaded.";
-            } catch (err) {
-                console.error(err);
-                exportStatus.textContent = "Export failed: " + err.message;
-            }
-        }
-
-        exportBtn.addEventListener("click", downloadExcel);
-
-        // -------- Roster upload handler (new) --------
-        async function uploadRoster() {
-            rosterUploadStatus.textContent = "";
-
-            if (!currentUser) {
-                rosterUploadStatus.textContent = "Not signed in. Please log in first.";
-                return;
-            }
-
-            const file = rosterFileInput.files[0];
-            if (!file) {
-                rosterUploadStatus.textContent = "Please choose an .xls or .xlsx file first.";
-                return;
-            }
-
-            try {
-                rosterUploadStatus.textContent = "Uploading roster...";
-
-                const idToken = await currentUser.getIdToken();
-                const formData = new FormData();
-                formData.append("file", file);
-
-                const response = await fetch(`${BACKEND_BASE_URL}/api/roster-upload`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${idToken}`,
-                        // Don't set Content-Type manually; browser sets multipart boundary
-                    },
-                    body: formData,
-                });
-
-                if (!response.ok) {
-                    const text = await response.text().catch(() => "");
+                    const result = await response.json();
                     rosterUploadStatus.textContent =
-                        `Roster upload failed (HTTP ${response.status}). ${text || ""}`;
-                    return;
+                        `Roster upload complete. Processed: ${result.processed}, Skipped: ${result.skipped}.`;
+                } catch (err) {
+                    console.error("Roster upload error:", err);
+                    rosterUploadStatus.textContent = "Roster upload failed: " + err.message;
                 }
-
-                const result = await response.json();
-                rosterUploadStatus.textContent =
-                    `Roster upload complete. Processed: ${result.processed}, Skipped: ${result.skipped}.`;
-            } catch (err) {
-                console.error("Roster upload error:", err);
-                rosterUploadStatus.textContent = "Roster upload failed: " + err.message;
             }
-        }
 
-        uploadRosterBtn.addEventListener("click", uploadRoster);
+            if (uploadRosterBtn) {
+                uploadRosterBtn.addEventListener("click", uploadRoster);
+            }
 
-
-        // -------- Sentral Markbook export (T1) --------
+            // -------- Sentral Markbook export (T1) --------
             async function downloadSentralMarkbook() {
                 sentralExportStatus.textContent = "";
 
@@ -318,83 +338,226 @@
                 sentralExportBtn.addEventListener("click", downloadSentralMarkbook);
             }
 
-            if (srGenerateBtn) {
-                    srGenerateBtn.addEventListener("click", downloadStudentReport);
-            }
-
-
-            // -------- Student Report PDF export --------
-                async function downloadStudentReport() {
-                    srStatus.textContent = "";
-
-                    if (!currentUser) {
-                        srStatus.textContent = "Not signed in. Please log in first.";
-                        return;
-                    }
-
-                    const quizId = (srQuizIdInput?.value || "").trim();
-                    const sciClass = (srSciClassInput?.value || "").trim();
-                    const studentEmail = (srStudentEmailInput?.value || "").trim().toLowerCase();
-
-                    if (!quizId || !sciClass || !studentEmail) {
-                        srStatus.textContent = "Please enter quiz ID, sci class and student email.";
-                        return;
-                    }
-
-                    try {
-                        srStatus.textContent = "Generating student report...";
-
-                        const idToken = await currentUser.getIdToken();
-
-                        const url =
-                            `${BACKEND_BASE_URL}/api/student-report` +
-                            `?quizId=${encodeURIComponent(quizId)}` +
-                            `&sciClass=${encodeURIComponent(sciClass)}` +
-                            `&studentEmail=${encodeURIComponent(studentEmail)}`;
-
-                        const response = await fetch(url, {
-                            method: "GET",
-                            headers: {
-                                Authorization: `Bearer ${idToken}`,
-                            },
-                        });
-
-                        if (!response.ok) {
-                            const text = await response.text().catch(() => "");
-                            if (response.status === 401 || response.status === 403) {
-                                srStatus.textContent = "You are not authorised to generate this report.";
-                            } else if (response.status === 404) {
-                                srStatus.textContent = `No data found for that student/quiz/class (HTTP 404). ${text || ""}`;
-                            } else {
-                                srStatus.textContent =
-                                    `Student report failed (HTTP ${response.status}). ${text || ""}`;
-                            }
-                            return;
-                        }
-
-                        const blob = await response.blob();
-                        const downloadUrl = window.URL.createObjectURL(blob);
-
-                        const safeEmail = studentEmail.replace(/[^a-z0-9_\-]+/gi, "_");
-                        const fileName = `StudentReport_${safeEmail}_${quizId}.pdf`;
-
-                        const a = document.createElement("a");
-                        a.href = downloadUrl;
-                        a.download = fileName;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-
-                        window.URL.revokeObjectURL(downloadUrl);
-                        srStatus.textContent = "Student report downloaded.";
-                    } catch (err) {
-                        console.error("Student report error (frontend):", err);
-                        srStatus.textContent = "Student report failed: " + err.message;
-                    }
+            // -------- Load quiz + class options for student reports --------
+            async function loadQuizOptions() {
+                if (!srQuizSelect) return;
+                if (!currentUser) {
+                    clearQuizAndClassOptions();
+                    return;
                 }
 
+                try {
+                    srStatus.textContent = "Loading quizzes...";
+                    const idToken = await currentUser.getIdToken();
 
-    </script>
+                    const resp = await fetch(`${BACKEND_BASE_URL}/api/admin/quizzes`, {
+                        headers: { Authorization: `Bearer ${idToken}` },
+                    });
+
+                    if (!resp.ok) {
+                        const text = await resp.text().catch(() => "");
+                        srStatus.textContent =
+                            `Failed to load quizzes (HTTP ${resp.status}). ${text || ""}`;
+                        clearQuizAndClassOptions();
+                        return;
+                    }
+
+                    const data = await resp.json();
+                    const quizzes = data.quizzes || [];
+
+                    srQuizSelect.innerHTML = "";
+
+                    if (!quizzes.length) {
+                        srQuizSelect.innerHTML =
+                            '<option value="" disabled selected>No quizzes found</option>';
+                        srClassSelect.innerHTML =
+                            '<option value="" disabled selected>No classes</option>';
+                        srClassSelect.disabled = true;
+                        srStatus.textContent = "No quizzes found in responses.";
+                        return;
+                    }
+
+                    const defaultOption = document.createElement("option");
+                    defaultOption.value = "";
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    defaultOption.textContent = "Select a quiz";
+                    srQuizSelect.appendChild(defaultOption);
+
+                    quizzes.forEach((q) => {
+                        const opt = document.createElement("option");
+                        opt.value = q;
+                        opt.textContent = q;
+                        srQuizSelect.appendChild(opt);
+                    });
+
+                    srStatus.textContent = "";
+
+                } catch (err) {
+                    console.error("Error loading quizzes:", err);
+                    srStatus.textContent = "Failed to load quizzes: " + err.message;
+                    clearQuizAndClassOptions();
+                }
+            }
+
+            async function loadClassOptionsForQuiz(quizId) {
+                if (!srClassSelect) return;
+                srClassSelect.disabled = true;
+                srClassSelect.innerHTML =
+                    '<option value="" disabled selected>Loading classes...</option>';
+
+                if (!currentUser) {
+                    srClassSelect.innerHTML =
+                        '<option value="" disabled selected>Sign in first</option>';
+                    return;
+                }
+
+                try {
+                    const idToken = await currentUser.getIdToken();
+                    const resp = await fetch(
+                        `${BACKEND_BASE_URL}/api/admin/classes?quizId=${encodeURIComponent(quizId)}`,
+                        {
+                            headers: { Authorization: `Bearer ${idToken}` },
+                        }
+                    );
+
+                    if (!resp.ok) {
+                        const text = await resp.text().catch(() => "");
+                        srStatus.textContent =
+                            `Failed to load classes (HTTP ${resp.status}). ${text || ""}`;
+                        srClassSelect.innerHTML =
+                            '<option value="" disabled selected>Error loading classes</option>';
+                        return;
+                    }
+
+                    const data = await resp.json();
+                    const classes = data.classes || [];
+
+                    srClassSelect.innerHTML = "";
+
+                    if (!classes.length) {
+                        srClassSelect.innerHTML =
+                            '<option value="" disabled selected>No classes for this quiz</option>';
+                        srClassSelect.disabled = true;
+                        srStatus.textContent = "No classes found for that quiz.";
+                        return;
+                    }
+
+                    const defaultOption = document.createElement("option");
+                    defaultOption.value = "";
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    defaultOption.textContent = "Select a class";
+                    srClassSelect.appendChild(defaultOption);
+
+                    classes.forEach((c) => {
+                        const opt = document.createElement("option");
+                        opt.value = c;
+                        opt.textContent = c;
+                        srClassSelect.appendChild(opt);
+                    });
+
+                    srClassSelect.disabled = false;
+                    srStatus.textContent = "";
+                } catch (err) {
+                    console.error("Error loading classes:", err);
+                    srStatus.textContent = "Failed to load classes: " + err.message;
+                    srClassSelect.innerHTML =
+                        '<option value="" disabled selected>Error loading classes</option>';
+                }
+            }
+
+            if (srQuizSelect) {
+                srQuizSelect.addEventListener("change", (e) => {
+                    const quizId = e.target.value;
+                    srStatus.textContent = "";
+                    if (quizId) {
+                        loadClassOptionsForQuiz(quizId);
+                    } else {
+                        srClassSelect.innerHTML =
+                            '<option value="" disabled selected>Select a quiz first</option>';
+                        srClassSelect.disabled = true;
+                    }
+                });
+            }
+
+            // -------- Download class student reports PDF --------
+            async function downloadClassStudentReports() {
+                srStatus.textContent = "";
+
+                if (!currentUser) {
+                    srStatus.textContent = "Not signed in. Please log in first.";
+                    return;
+                }
+
+                const quizId = srQuizSelect?.value || "";
+                const sciClass = srClassSelect?.value || "";
+
+                if (!quizId || !sciClass) {
+                    srStatus.textContent = "Please select both a quiz and a class.";
+                    return;
+                }
+
+                try {
+                    srStatus.textContent = "Generating class student reports...";
+
+                    const idToken = await currentUser.getIdToken();
+
+                    const url =
+                        `${BACKEND_BASE_URL}/api/student-reports-class` +
+                        `?quizId=${encodeURIComponent(quizId)}` +
+                        `&sciClass=${encodeURIComponent(sciClass)}`;
+
+                    const response = await fetch(url, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${idToken}`,
+                        },
+                    });
+
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => "");
+                        if (response.status === 401 || response.status === 403) {
+                            srStatus.textContent =
+                                "You are not authorised to generate these reports.";
+                        } else if (response.status === 404) {
+                            srStatus.textContent =
+                                `No reports found for that quiz/class (HTTP 404). ${text || ""}`;
+                        } else {
+                            srStatus.textContent =
+                                `Class student reports failed (HTTP ${response.status}). ${text || ""}`;
+                        }
+                        return;
+                    }
+
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+
+                    const safeClass = sciClass.replace(/[^a-z0-9_\-]+/gi, "_");
+                    const safeQuiz = quizId.replace(/[^a-z0-9_\-]+/gi, "_");
+                    const fileName = `StudentReports_${safeClass}_${safeQuiz}.pdf`;
+
+                    const a = document.createElement("a");
+                    a.href = downloadUrl;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+
+                    window.URL.revokeObjectURL(downloadUrl);
+                    srStatus.textContent = "Class student reports downloaded.";
+                } catch (err) {
+                    console.error("Class student reports error (frontend):", err);
+                    srStatus.textContent =
+                        "Class student reports failed: " + err.message;
+                }
+            }
+
+            if (srGenerateClassBtn) {
+                srGenerateClassBtn.addEventListener("click", downloadClassStudentReports);
+            }
+        </script>
+
 
 </body>
 

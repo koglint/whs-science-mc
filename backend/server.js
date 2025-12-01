@@ -450,6 +450,256 @@ async function buildStudentReportModel({ quizId, studentEmail, sciClass }) {
 }
 
 // Render PDF from the model with pdfkit
+// Draw a single student's report into an existing PDFDocument
+function writeStudentReportToDoc(doc, model, { startOnNewPage = false } = {}) {
+  const {
+    header,
+    rawMarks,
+    outcomes,
+    stats,
+    topics,
+    strengths,
+    weaknesses,
+    advice,
+    summaryText,
+  } = model;
+
+  if (startOnNewPage) {
+    doc.addPage();
+  }
+
+  // HEADER
+  doc.fontSize(18).text("Student Report", { align: "center" });
+  doc.moveDown();
+
+  doc.fontSize(12);
+  doc.text(`Student: ${header.studentName}`);
+  doc.text(`Class: ${header.className}`);
+  doc.text(`Task: ${header.taskName}`);
+  doc.text(`Completed: ${header.dateCompleted}`);
+  doc.text(
+    `Overall: ${header.overallPercent.toFixed(1)}% (${header.overallGrade})`
+  );
+  doc.moveDown();
+
+  // RAW MARKS
+  doc.fontSize(14).text("Raw Marks", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  const overallRaw = rawMarks.overallRaw;
+  doc.text(`Overall: ${overallRaw.correct}/${overallRaw.total}`);
+
+  const outcomeRaw = rawMarks.outcomeRaw;
+  outcomes.order.forEach((k) => {
+    const o = outcomeRaw[k];
+    doc.text(`${k}: ${o.correct}/${o.total}`);
+  });
+  doc.moveDown();
+
+  // OUTCOME BREAKDOWN
+  doc.fontSize(14).text("Outcome Breakdown (%)", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  outcomes.order.forEach((k) => {
+    const p = outcomes.outcomePercentages[k] || 0;
+    doc.text(`${k}: ${p.toFixed(1)}%`);
+  });
+  doc.moveDown();
+
+  // STATS
+  doc.fontSize(14).text("Class Statistical Analysis", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  const cs = stats.classStats || {
+    min: 0,
+    max: 0,
+    mean: 0,
+    stdDev: 0,
+    percentile: 0,
+    studentScore: header.overallPercent,
+  };
+
+  doc.text(`Class min: ${cs.min.toFixed(1)}%`);
+  doc.text(`Class max: ${cs.max.toFixed(1)}%`);
+  doc.text(`Class mean: ${cs.mean.toFixed(1)}%`);
+  doc.text(`Std dev: ${cs.stdDev.toFixed(2)}`);
+  doc.text(
+    `Your score: ${cs.studentScore.toFixed(
+      1
+    )}% (approx. ${cs.percentile.toFixed(1)}th percentile)`
+  );
+  doc.moveDown();
+
+  // BOX & WHISKER PLOT
+  const box = stats.boxPlot || {
+    min: 0,
+    q1: 0,
+    median: 0,
+    q3: 0,
+    max: 0,
+    student: header.overallPercent,
+  };
+
+  doc.text("Class distribution (box & whisker):");
+  doc.moveDown(0.3);
+
+  const plotX = 70;
+  const plotY = doc.y + 15;
+  const plotWidth = 400;
+  const plotHeight = 20;
+
+  const scale = (score) => {
+    const minScore = 0;
+    const maxScore = 100;
+    return (
+      plotX +
+      ((Math.min(Math.max(score, minScore), maxScore) - minScore) /
+        (maxScore - minScore)) *
+        plotWidth
+    );
+  };
+
+  // whisker line
+  doc
+    .moveTo(scale(box.min), plotY + plotHeight / 2)
+    .lineTo(scale(box.max), plotY + plotHeight / 2)
+    .stroke();
+
+  // min and max ticks
+  doc
+    .moveTo(scale(box.min), plotY + 5)
+    .lineTo(scale(box.min), plotY + plotHeight - 5)
+    .stroke();
+  doc
+    .moveTo(scale(box.max), plotY + 5)
+    .lineTo(scale(box.max), plotY + plotHeight - 5)
+    .stroke();
+
+  // box Q1–Q3
+  const q1X = scale(box.q1);
+  const q3X = scale(box.q3);
+  doc.rect(q1X, plotY, q3X - q1X, plotHeight).stroke();
+
+  // median
+  const medX = scale(box.median);
+  doc.moveTo(medX, plotY).lineTo(medX, plotY + plotHeight).stroke();
+
+  // student marker
+  const studentX = scale(box.student);
+  const studentY = plotY + plotHeight / 2;
+  doc.circle(studentX, studentY, 3).fill();
+  doc.moveDown(3);
+
+  // TOPIC PERFORMANCE
+  doc.fontSize(14).text("Topic Performance", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  if (topics.length === 0) {
+    doc.text("No topic-level data available.");
+  } else {
+    topics.forEach((t) => {
+      doc.text(
+        `${t.id} ${t.name}: ${t.percent.toFixed(1)}% (${t.level})`
+      );
+    });
+  }
+  doc.moveDown();
+
+  // STRENGTHS
+  doc.fontSize(14).text("Strengths", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  if (strengths.strengthOutcomes.length) {
+    doc.text(
+      `Strong outcomes: ${strengths.strengthOutcomes.join(", ")}`
+    );
+  }
+  if (strengths.strengthTopics.length) {
+    doc.text(
+      `Strong topics: ${strengths.strengthTopics
+        .map((t) => `${t.id} ${t.name}`)
+        .join("; ")}`
+    );
+  }
+  if (strengths.strengthSkills.length) {
+    doc.text(
+      `General strengths: ${strengths.strengthSkills.join("; ")}`
+    );
+  }
+  if (
+    !strengths.strengthOutcomes.length &&
+    !strengths.strengthTopics.length &&
+    !strengths.strengthSkills.length
+  ) {
+    doc.text("No clear strengths identified yet.");
+  }
+  doc.moveDown();
+
+  // WEAKNESSES
+  doc.fontSize(14).text("Weaknesses", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  if (weaknesses.weakOutcomes.length) {
+    doc.text(
+      `Outcomes needing attention: ${weaknesses.weakOutcomes.join(", ")}`
+    );
+  }
+  if (weaknesses.weakTopics.length) {
+    doc.text(
+      `Topics needing attention: ${weaknesses.weakTopics
+        .map((t) => `${t.id} ${t.name}`)
+        .join("; ")}`
+    );
+  }
+  if (weaknesses.errorTypes.length) {
+    doc.text(`Common error patterns: ${weaknesses.errorTypes.join("; ")}`);
+  }
+  if (
+    !weaknesses.weakOutcomes.length &&
+    !weaknesses.weakTopics.length &&
+    !weaknesses.errorTypes.length
+  ) {
+    doc.text("No specific weaknesses identified from this task.");
+  }
+  doc.moveDown();
+
+  // STUDY ADVICE
+  doc.fontSize(14).text("Study Advice", { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(12);
+
+  if (advice.priorityTopics.length) {
+    doc.text("Priority topics to revise:");
+    advice.priorityTopics.slice(0, 5).forEach((t, idx) => {
+      doc.text(`${idx + 1}. ${t}`);
+    });
+    doc.moveDown(0.3);
+  }
+
+  if (advice.recommendedSkills.length) {
+    doc.text("Recommended skill practice:");
+    advice.recommendedSkills.forEach((s) => {
+      doc.text(`- ${s}`);
+    });
+  }
+  doc.moveDown();
+
+  // SUMMARY ON NEW PAGE
+  doc.addPage();
+  doc.fontSize(14).text("Summary", { underline: true });
+  doc.moveDown(0.5);
+  doc.fontSize(12).text(summaryText, {
+    align: "left",
+  });
+}
+
+// Single-student PDF buffer (kept for future use if needed)
 function renderStudentReportPDF(model) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
@@ -459,251 +709,32 @@ function renderStudentReportPDF(model) {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const {
-      header,
-      rawMarks,
-      outcomes,
-      stats,
-      topics,
-      strengths,
-      weaknesses,
-      advice,
-      summaryText,
-    } = model;
+    writeStudentReportToDoc(doc, model, { startOnNewPage: false });
 
-    // HEADER
-    doc.fontSize(18).text("Student Report", { align: "center" });
-    doc.moveDown();
+    doc.end();
+  });
+}
 
-    doc.fontSize(12);
-    doc.text(`Student: ${header.studentName}`);
-    doc.text(`Class: ${header.className}`);
-    doc.text(`Task: ${header.taskName}`);
-    doc.text(`Completed: ${header.dateCompleted}`);
-    doc.text(
-      `Overall: ${header.overallPercent.toFixed(1)}% (${header.overallGrade})`
-    );
-    doc.moveDown();
+// Multi-student PDF buffer for a whole class
+function renderClassStudentReportsPDF(models) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50 });
 
-    // RAW MARKS
-    doc.fontSize(14).text("Raw Marks", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
+    const chunks = [];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
 
-    const overallRaw = rawMarks.overallRaw;
-    doc.text(`Overall: ${overallRaw.correct}/${overallRaw.total}`);
-
-    const outcomeRaw = rawMarks.outcomeRaw;
-    outcomes.order.forEach((k) => {
-      const o = outcomeRaw[k];
-      doc.text(`${k}: ${o.correct}/${o.total}`);
-    });
-    doc.moveDown();
-
-    // OUTCOME BREAKDOWN
-    doc.fontSize(14).text("Outcome Breakdown (%)", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    outcomes.order.forEach((k) => {
-      const p = outcomes.outcomePercentages[k] || 0;
-      doc.text(`${k}: ${p.toFixed(1)}%`);
-    });
-    doc.moveDown();
-
-    // STATS
-    doc.fontSize(14).text("Class Statistical Analysis", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    const cs = stats.classStats || {
-      min: 0,
-      max: 0,
-      mean: 0,
-      stdDev: 0,
-      percentile: 0,
-      studentScore: header.overallPercent,
-    };
-
-    doc.text(`Class min: ${cs.min.toFixed(1)}%`);
-    doc.text(`Class max: ${cs.max.toFixed(1)}%`);
-    doc.text(`Class mean: ${cs.mean.toFixed(1)}%`);
-    doc.text(`Std dev: ${cs.stdDev.toFixed(2)}`);
-    doc.text(
-      `Your score: ${cs.studentScore.toFixed(1)}% (approx. ${cs.percentile.toFixed(
-        1
-      )}th percentile)`
-    );
-    doc.moveDown();
-
-    // BOX & WHISKER PLOT
-    const box = stats.boxPlot || {
-      min: 0,
-      q1: 0,
-      median: 0,
-      q3: 0,
-      max: 0,
-      student: header.overallPercent,
-    };
-
-    doc.text("Class distribution (box & whisker):");
-    doc.moveDown(0.3);
-
-    const plotX = 70;
-    const plotY = doc.y + 15;
-    const plotWidth = 400;
-    const plotHeight = 20;
-
-    const scale = (score) => {
-      const minScore = 0;
-      const maxScore = 100;
-      return (
-        plotX +
-        ((Math.min(Math.max(score, minScore), maxScore) - minScore) /
-          (maxScore - minScore)) *
-          plotWidth
-      );
-    };
-
-    // whisker line
-    doc
-      .moveTo(scale(box.min), plotY + plotHeight / 2)
-      .lineTo(scale(box.max), plotY + plotHeight / 2)
-      .stroke();
-
-    // min and max ticks
-    doc
-      .moveTo(scale(box.min), plotY + 5)
-      .lineTo(scale(box.min), plotY + plotHeight - 5)
-      .stroke();
-    doc
-      .moveTo(scale(box.max), plotY + 5)
-      .lineTo(scale(box.max), plotY + plotHeight - 5)
-      .stroke();
-
-    // box Q1–Q3
-    const q1X = scale(box.q1);
-    const q3X = scale(box.q3);
-    doc.rect(q1X, plotY, q3X - q1X, plotHeight).stroke();
-
-    // median
-    const medX = scale(box.median);
-    doc.moveTo(medX, plotY).lineTo(medX, plotY + plotHeight).stroke();
-
-    // student marker
-    const studentX = scale(box.student);
-    const studentY = plotY + plotHeight / 2;
-    doc.circle(studentX, studentY, 3).fill();
-    doc.moveDown(3);
-
-    // TOPIC PERFORMANCE
-    doc.fontSize(14).text("Topic Performance", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    if (topics.length === 0) {
-      doc.text("No topic-level data available.");
-    } else {
-      topics.forEach((t) => {
-        doc.text(
-          `${t.id} ${t.name}: ${t.percent.toFixed(1)}% (${t.level})`
-        );
+    models.forEach((model, index) => {
+      writeStudentReportToDoc(doc, model, {
+        startOnNewPage: index !== 0,
       });
-    }
-    doc.moveDown();
-
-    // STRENGTHS
-    doc.fontSize(14).text("Strengths", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    if (strengths.strengthOutcomes.length) {
-      doc.text(
-        `Strong outcomes: ${strengths.strengthOutcomes.join(", ")}`
-      );
-    }
-    if (strengths.strengthTopics.length) {
-      doc.text(
-        `Strong topics: ${strengths.strengthTopics
-          .map((t) => `${t.id} ${t.name}`)
-          .join("; ")}`
-      );
-    }
-    if (strengths.strengthSkills.length) {
-      doc.text(
-        `General strengths: ${strengths.strengthSkills.join("; ")}`
-      );
-    }
-    if (
-      !strengths.strengthOutcomes.length &&
-      !strengths.strengthTopics.length &&
-      !strengths.strengthSkills.length
-    ) {
-      doc.text("No clear strengths identified yet.");
-    }
-    doc.moveDown();
-
-    // WEAKNESSES
-    doc.fontSize(14).text("Weaknesses", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    if (weaknesses.weakOutcomes.length) {
-      doc.text(
-        `Outcomes needing attention: ${weaknesses.weakOutcomes.join(", ")}`
-      );
-    }
-    if (weaknesses.weakTopics.length) {
-      doc.text(
-        `Topics needing attention: ${weaknesses.weakTopics
-          .map((t) => `${t.id} ${t.name}`)
-          .join("; ")}`
-      );
-    }
-    if (weaknesses.errorTypes.length) {
-      doc.text(`Common error patterns: ${weaknesses.errorTypes.join("; ")}`);
-    }
-    if (
-      !weaknesses.weakOutcomes.length &&
-      !weaknesses.weakTopics.length &&
-      !weaknesses.errorTypes.length
-    ) {
-      doc.text("No specific weaknesses identified from this task.");
-    }
-    doc.moveDown();
-
-    // STUDY ADVICE
-    doc.fontSize(14).text("Study Advice", { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(12);
-
-    if (advice.priorityTopics.length) {
-      doc.text("Priority topics to revise:");
-      advice.priorityTopics.slice(0, 5).forEach((t, idx) => {
-        doc.text(`${idx + 1}. ${t}`);
-      });
-      doc.moveDown(0.3);
-    }
-
-    if (advice.recommendedSkills.length) {
-      doc.text("Recommended skill practice:");
-      advice.recommendedSkills.forEach((s) => {
-        doc.text(`- ${s}`);
-      });
-    }
-    doc.moveDown();
-
-    // SUMMARY ON NEW PAGE
-    doc.addPage();
-    doc.fontSize(14).text("Summary", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(12).text(summaryText, {
-      align: "left",
     });
 
     doc.end();
   });
 }
+
 
 
 
@@ -964,6 +995,77 @@ app.get("/api/export", requireExportAdmin, async (req, res) => {
 });
 
 
+// -------------------- ADMIN QUIZ & CLASS LISTS (ADMIN ONLY) --------------------
+
+// GET /api/admin/quizzes  -> { quizzes: ["task1_2025", "task2_2025", ...] }
+app.get("/api/admin/quizzes", requireExportAdmin, async (req, res) => {
+  try {
+    const snap = await db.collection("responses").select("quizId").get();
+    const quizSet = new Set();
+
+    snap.forEach((doc) => {
+      const d = doc.data();
+      const q = (d.quizId || "").trim();
+      if (q) quizSet.add(q);
+    });
+
+    const quizzes = Array.from(quizSet).sort();
+    res.json({ quizzes });
+  } catch (err) {
+    console.error("Quiz list error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/classes?quizId=task1_2025 -> { classes: ["10SciASP", "7Sci3", ...] }
+app.get("/api/admin/classes", requireExportAdmin, async (req, res) => {
+  try {
+    const quizId = (req.query.quizId || "").trim();
+    if (!quizId) {
+      return res.status(400).json({ error: "quizId is required" });
+    }
+
+    const snap = await db
+      .collection("responses")
+      .where("quizId", "==", quizId)
+      .get();
+
+    if (snap.empty) {
+      return res.json({ classes: [] });
+    }
+
+    const responseDocs = snap.docs.map((d) => d.data());
+
+    const emailSet = new Set();
+    for (const row of responseDocs) {
+      if (typeof row.email === "string" && row.email.trim()) {
+        emailSet.add(row.email.toLowerCase());
+      }
+    }
+
+    if (emailSet.size === 0) {
+      return res.json({ classes: [] });
+    }
+
+    const emailList = Array.from(emailSet);
+    const docRefs = emailList.map((e) => db.collection("roster").doc(e));
+    const rosterSnaps = await db.getAll(...docRefs);
+
+    const classSet = new Set();
+    rosterSnaps.forEach((snap) => {
+      if (!snap.exists) return;
+      const data = snap.data();
+      const sciClass = (data.sciClass || "").trim();
+      if (sciClass) classSet.add(sciClass);
+    });
+
+    const classes = Array.from(classSet).sort();
+    res.json({ classes });
+  } catch (err) {
+    console.error("Class list error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 
@@ -1215,6 +1317,146 @@ app.get("/api/student-report", requireExportAdmin, async (req, res) => {
       .json({ error: "Failed to generate student report", detail: err.message });
   }
 });
+
+
+// -------------------- CLASS STUDENT REPORTS PDF (ADMIN ONLY) --------------------
+
+// GET /api/student-reports-class?quizId=task1_2025&sciClass=10SciASP
+app.get("/api/student-reports-class", requireExportAdmin, async (req, res) => {
+  try {
+    const quizId = (req.query.quizId || "").trim();
+    const sciClass = (req.query.sciClass || "").trim();
+
+    if (!quizId || !sciClass) {
+      return res
+        .status(400)
+        .json({ error: "quizId and sciClass are required" });
+    }
+
+    // 1) Fetch all responses for this quiz
+    const snap = await db
+      .collection("responses")
+      .where("quizId", "==", quizId)
+      .get();
+
+    if (snap.empty) {
+      return res
+        .status(404)
+        .json({ error: "No responses found for this quizId" });
+    }
+
+    const responseDocs = snap.docs.map((d) => d.data());
+
+    // 2) Collect emails and join with roster
+    const emailSet = new Set();
+    for (const row of responseDocs) {
+      if (typeof row.email === "string" && row.email.trim()) {
+        emailSet.add(row.email.toLowerCase());
+      }
+    }
+
+    if (emailSet.size === 0) {
+      return res
+        .status(400)
+        .json({ error: "No emails found in responses to join with roster" });
+    }
+
+    const emailList = Array.from(emailSet);
+    const docRefs = emailList.map((e) => db.collection("roster").doc(e));
+    const rosterSnaps = await db.getAll(...docRefs);
+
+    const rosterMap = new Map();
+    rosterSnaps.forEach((snap, idx) => {
+      if (!snap.exists) return;
+      rosterMap.set(emailList[idx], snap.data());
+    });
+
+    // 3) Determine which students are in the target sciClass
+    const classStudentsMap = new Map(); // email -> rosterData
+
+    for (const row of responseDocs) {
+      const rowEmail =
+        typeof row.email === "string" ? row.email.toLowerCase() : "";
+      if (!rowEmail) continue;
+
+      const roster = rosterMap.get(rowEmail);
+      if (!roster) continue;
+
+      const rowSciClass = roster.sciClass || "";
+      if (rowSciClass !== sciClass) continue;
+
+      if (!classStudentsMap.has(rowEmail)) {
+        classStudentsMap.set(rowEmail, roster);
+      }
+    }
+
+    const classStudentEntries = Array.from(classStudentsMap.entries());
+    if (classStudentEntries.length === 0) {
+      return res.status(404).json({
+        error: "No students found in that class for this quiz.",
+      });
+    }
+
+    // Sort by surname then givenName
+    classStudentEntries.sort((a, b) => {
+      const rosterA = a[1];
+      const rosterB = b[1];
+      const surA = (rosterA.familyName || "").toLowerCase();
+      const surB = (rosterB.familyName || "").toLowerCase();
+      const cmpSur = surA.localeCompare(surB);
+      if (cmpSur !== 0) return cmpSur;
+      const givA = (rosterA.givenName || "").toLowerCase();
+      const givB = (rosterB.givenName || "").toLowerCase();
+      return givA.localeCompare(givB);
+    });
+
+    // 4) Build a report model for each student in the class
+    const models = [];
+    for (const [email, roster] of classStudentEntries) {
+      try {
+        const model = await buildStudentReportModel({
+          quizId,
+          studentEmail: email,
+          sciClass,
+        });
+        models.push(model);
+      } catch (err) {
+        console.warn(
+          `Skipping student ${email} for class report:`,
+          err.message
+        );
+      }
+    }
+
+    if (!models.length) {
+      return res.status(404).json({
+        error:
+          "No valid student reports could be generated for that class/quiz.",
+      });
+    }
+
+    // 5) Render combined PDF
+    const pdfBuffer = await renderClassStudentReportsPDF(models);
+
+    const safeClass = sciClass.replace(/[^a-z0-9_\-]+/gi, "_");
+    const safeQuiz = quizId.replace(/[^a-z0-9_\-]+/gi, "_");
+    const filename = `StudentReports_${safeClass}_${safeQuiz}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${filename}"`
+    );
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error generating class student reports:", err);
+    res.status(500).json({
+      error: "Failed to generate class student reports",
+      detail: err.message,
+    });
+  }
+});
+
 
 
 
